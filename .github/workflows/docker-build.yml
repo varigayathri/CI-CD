@@ -19,12 +19,17 @@ jobs:
           chmod 600 ~/.ssh/id_rsa
           ssh-keyscan -H ${{ secrets.HOST }} >> ~/.ssh/known_hosts
 
+      - name: Copy files to Azure VM
+        run: |
+          scp -r . ${{ secrets.USER }}@${{ secrets.HOST }}:/home/${{ secrets.USER }}/app
+
       - name: Deploy to server via SSH
         run: |
           ssh ${{ secrets.USER }}@${{ secrets.HOST }} << 'EOF'
+            cd /home/${{ secrets.USER }}/app
             sudo apt update && sudo apt install -y docker.io
             sudo docker stop static-site || true
             sudo docker rm static-site || true
-            sudo docker pull nginx:alpine
-            sudo docker run -d --name static-site -p 80:80 nginx:alpine
+            sudo docker build -t static-site .
+            sudo docker run -d --name static-site -p 80:80 static-site
           EOF

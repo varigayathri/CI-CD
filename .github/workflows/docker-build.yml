@@ -1,4 +1,4 @@
-name: Deploy to VM
+name: Deploy to Azure VM
 
 on:
   push:
@@ -12,24 +12,39 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      - name: Setup SSH
+      - name: Set up SSH
         run: |
           mkdir -p ~/.ssh
           echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
           ssh-keyscan -H ${{ secrets.HOST }} >> ~/.ssh/known_hosts
 
-      - name: Copy files to Azure VM
+      - name: Create deploy.zip (excluding .git and workflows)
         run: |
-          scp -r . ${{ secrets.USER }}@${{ secrets.HOST }}:/home/${{ secrets.USER }}/app
+          zip -r deploy.zip . -x ".git/*" ".github/*"
 
-      - name: Deploy to server via SSH
+      - name: Copy archive to Azure VM
+        run: |
+          scp deploy.zip ${{ secrets.USER }}@${{ secrets.HOST }}:/home/${{ secrets.USER }}/deploy.zip
+
+      - name: SSH and deploy on VM
         run: |
           ssh ${{ secrets.USER }}@${{ secrets.HOST }} << 'EOF'
+            sudo apt update && sudo apt install -y docker.io unzip
+
+            # Cleanup old app directory if it exists
+            rm -rf /home/${{ secrets.USER }}/app
+            mkdir -p /home/${{ secrets.USER }}/app
+
+            # Unzip uploaded code
+            unzip /home/${{ secrets.USER }}/deploy.zip -d /home/${{ secrets.USER }}/app
             cd /home/${{ secrets.USER }}/app
-            sudo apt update && sudo apt install -y docker.io
+
+            # Stop and remove any existing container
             sudo docker stop static-site || true
             sudo docker rm static-site || true
+
+            # Build and run the Docker container
             sudo docker build -t static-site .
             sudo docker run -d --name static-site -p 80:80 static-site
           EOF
